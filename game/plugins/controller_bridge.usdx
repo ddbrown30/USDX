@@ -1,0 +1,92 @@
+-- controller_bridge.usdx
+--
+-- Lets an external process (e.g. the web controller) request a song to
+-- be played, and get back a real success/failure answer, without
+-- synthetic keystrokes.
+--
+-- Protocol (simple file polling - Lua has no socket library available):
+--   The external process atomically writes the search text to
+--     plugins/controller_bridge/request.txt
+--   (write to request.txt.tmp then os.rename to request.txt, so this
+--   script never sees a half-written file).
+--
+--   This script polls for that file once per drawn frame, and on
+--   seeing it:
+--     1. immediately renames it out of the way so it's only handled once
+--     2. asks Usdx.Song to play it
+--     3. atomically writes "OK" or "FAIL" to
+--          plugins/controller_bridge/response.txt
+--
+--   The external process polls for response.txt, reads it, deletes it.
+
+local BRIDGE_DIR = 'plugins/controller_bridge'
+local REQUEST_FILE = BRIDGE_DIR .. '/request.txt'
+local REQUEST_PROCESSING_FILE = BRIDGE_DIR .. '/request.processing.txt'
+local RESPONSE_TMP_FILE = BRIDGE_DIR .. '/response.txt.tmp'
+local RESPONSE_FILE = BRIDGE_DIR .. '/response.txt'
+
+function plugin_init()
+  register('controller bridge', '1.00', '');
+
+  require('Usdx.Song');
+  require('io');
+  require('os');
+
+  hDraw = Usdx.Hook('Display.Draw', 'PollForRequest');
+
+  return true;
+end
+
+function file_exists(path)
+  local f = io.open(path, 'r');
+  if f == nil then
+    return false;
+  end
+  f:close();
+  return true;
+end
+
+function read_file(path)
+  local f = io.open(path, 'r');
+  local contents = f:read('*a');
+  f:close();
+  return contents;
+end
+
+function write_response(text)
+  local f = io.open(RESPONSE_TMP_FILE, 'w');
+  f:write(text);
+  f:close();
+
+  -- Remove any stale response the controller failed to pick up, then
+  -- publish the new one atomically.
+  os.remove(RESPONSE_FILE);
+  os.rename(RESPONSE_TMP_FILE, RESPONSE_FILE);
+end
+
+function PollForRequest()
+  if not file_exists(REQUEST_FILE) then
+    return;
+  end
+
+  -- Claim the request so a slow write or a second poll this same
+  -- frame can't double-process it.
+  local claimed = os.rename(REQUEST_FILE, REQUEST_PROCESSING_FILE);
+  if not claimed then
+    return;
+  end
+
+  local searchText = read_file(REQUEST_PROCESSING_FILE);
+  os.remove(REQUEST_PROCESSING_FILE);
+
+  -- Trim whitespace/newlines from the written search text.
+  searchText = searchText:gsub('^%s+', ''):gsub('%s+$', '');
+
+  local success = Usdx.Song.Play(searchText);
+
+  if success then
+    write_response('OK');
+  else
+    write_response('FAIL');
+  end
+end
