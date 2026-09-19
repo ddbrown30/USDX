@@ -77,6 +77,8 @@ type
       SupportsVAO: boolean;
       SupportsFBO: boolean;
       SupportsMappedBuffer: boolean;
+      SupportsMipMap: boolean;
+      GlyphTextureFormat: GLint;
 
       MappedBuffer: PGLfloat; // OpenGL 2.0 doesn't support mapped buffers, so we manage it ourself.
 
@@ -84,7 +86,7 @@ type
       procedure InitBuffers();
       procedure BindMainVertexAttrib();
       procedure BindLineStripVertexAttrib();
-      function LoadTexture(Data: PByte; W, H: integer; const Identifier: IPath; Typ: TTextureType): TTexture; overload; override;
+      function LoadTexture(Data: PByte; W, H: integer; const Identifier: IPath; Typ: TTextureType; UseMipmaps: boolean): TTexture; overload; override;
       procedure DrawTexture(Texture: TTexture; Prog: GLuint; var UpdateTransform: boolean; TransformLocation: GLint); overload;
       function GetArrayBuffer(var Bytes: GLuint): PGLfloat;
       procedure UploadArray(DataSize: GLuint);
@@ -284,6 +286,7 @@ const
   MAX_QUADS = (VBO_SIZE div QUAD_STRIDE_BYTES); // Number of quads that can be stored in the VBO
   EBO_INDICES = MAX_QUADS * 6; // 2 triangles, 6 total vertices per quad
   EBO_SIZE = EBO_INDICES * SizeOf(GLuint);
+  GL_LUMINANCE = $1909;
 
 type
   TTexture_OpenGL = class(TTexture)
@@ -291,7 +294,7 @@ type
       TexID: GLuint;
 
     public
-      constructor Create(Data: PByte; W, H: integer; const Identifier: IPath; Format: GLint; Alignment: GLint; WrapMode: GLint); overload;
+      constructor Create(Data: PByte; W, H: integer; const Identifier: IPath; Format: GLint; Alignment: GLint; WrapMode: GLint; UseMipmaps: boolean); overload;
       constructor Create(const Identifier: IPath); overload;
       destructor Destroy; override;
       procedure UpdateData(Data: PByte; Width, Height: word; PixelsPerRow: integer; Typ: TTextureType); override;
@@ -301,7 +304,7 @@ type
   end;
 
 
-constructor TTexture_OpenGL.Create(Data: PByte; W, H: integer; const Identifier: IPath; Format: GLint; Alignment: GLint; WrapMode: GLint);
+constructor TTexture_OpenGL.Create(Data: PByte; W, H: integer; const Identifier: IPath; Format: GLint; Alignment: GLint; WrapMode: GLint; UseMipmaps: boolean);
 begin
   inherited Create(Identifier);
   self.W := W;
@@ -311,7 +314,10 @@ begin
   glGenTextures(1, @TexID);
   glBindTexture(GL_TEXTURE_2D, TexID);
 
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  if UseMipmaps and (Assigned(glGenerateMipmap) or Assigned(glGenerateMipmapEXT)) then
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR)
+  else
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, WrapMode);
@@ -320,6 +326,13 @@ begin
 
   // load data into gl texture
   glTexImage2D(GL_TEXTURE_2D, 0, Format, W, H, 0, Format, GL_UNSIGNED_BYTE, Data);
+  if UseMipmaps then
+  begin
+    if Assigned(glGenerateMipmap) then
+      glGenerateMipmap(GL_TEXTURE_2D)
+    else if Assigned(glGenerateMipmapEXT) then
+      glGenerateMipmapEXT(GL_TEXTURE_2D);
+  end;
   fIsEmpty := false;
   {$IFDEF DEBUG_MODE}
   TRenderer_OpenGLBase(Renderer).RaiseExceptionIfError;
@@ -1508,12 +1521,14 @@ begin
   Result := glIsEnabled(GL_BLEND) = GL_TRUE;
 end;
 
-function TRenderer_OpenGLBase.LoadTexture(Data: PByte; W, H: integer; const Identifier: IPath; Typ: TTextureType): TTexture;
+function TRenderer_OpenGLBase.LoadTexture(Data: PByte; W, H: integer; const Identifier: IPath; Typ: TTextureType; UseMipmaps: boolean): TTexture;
 begin
+  if (UseMipmaps and (not SupportsMipMap)) then
+    UseMipmaps := false;
   if (Typ = TEXTURE_TYPE_TRANSPARENT) or (Typ = TEXTURE_TYPE_COLORIZED) then
-    Result := TTexture_OpenGL.Create(Data, W, H, Identifier, GL_RGBA, 4, GL_CLAMP_TO_EDGE)
+    Result := TTexture_OpenGL.Create(Data, W, H, Identifier, GL_RGBA, 4, GL_CLAMP_TO_EDGE, UseMipmaps)
   else // TEXTURE_TYPE_PLAIN
-    Result := TTexture_OpenGL.Create(Data, W, H, Identifier, GL_RGB, 4, GL_CLAMP_TO_EDGE);
+    Result := TTexture_OpenGL.Create(Data, W, H, Identifier, GL_RGB, 4, GL_CLAMP_TO_EDGE, UseMipmaps);
   {$IFDEF DEBUG_MODE}
   RaiseExceptionIfError;
   {$ENDIF};
@@ -1523,7 +1538,7 @@ end;
 // store this in the red channel, and later assign it to alpha in the fragment shader
 function TRenderer_OpenGLBase.LoadGlyph(Data: PByte; W, H: integer): TTexture;
 begin
-  Result := TTexture_OpenGL.Create(Data, W, H, PATH_NONE, GL_RED, 1, GL_CLAMP_TO_EDGE);
+  Result := TTexture_OpenGL.Create(Data, W, H, PATH_NONE, GlyphTextureFormat, 1, GL_CLAMP_TO_EDGE, false);
   {$IFDEF DEBUG_MODE}
   RaiseExceptionIfError;
   {$ENDIF};
@@ -1768,6 +1783,8 @@ begin
   SupportsVAO := true;
   SupportsFBO := true;
   SupportsMappedBuffer := true;
+  SupportsMipMap := true;
+  GlyphTextureFormat := GL_RED;
   if ((MajorVersion > 3) or ((MajorVersion = 3) and (MinorVersion >= 3))) then
     fSupportsProjectM := true;
 end;
@@ -1818,6 +1835,9 @@ procedure TRenderer_OpenGLES.CheckVersion();
 var
   Extensions: string;
   GL_OES_vertex_array_object: boolean;
+  GL_OES_element_index_uint: boolean;
+  GL_EXT_texture_rg: boolean;
+  GL_OES_texture_npot: boolean;
 begin
   if (MajorVersion < 2) then
     raise Exception.Create('Could not initialize OpenGL ES 2.0 or later');
@@ -1827,14 +1847,28 @@ begin
     SupportsVAO := true;
     fSupportsProjectM := true;
     SupportsMappedBuffer := true;
+    SupportsMipMap := true;
+    GlyphTextureFormat := GL_RED;
   end
   else
   begin
     Extensions := Int_GetExtensionString;
+    GL_OES_element_index_uint := Int_CheckExtension(Extensions, 'GL_OES_element_index_uint');
+    if (not GL_OES_element_index_uint) then
+      raise Exception.Create('OpenGL ES driver does not support the required GL_OES_element_index_uint extension');
     GL_OES_vertex_array_object := Int_CheckExtension(Extensions, 'GL_OES_vertex_array_object');
     if (GL_OES_vertex_array_object) then
       SupportsVAO := true;
-
+    GL_EXT_texture_rg := Int_CheckExtension(Extensions, 'GL_EXT_texture_rg');
+    if (GL_EXT_texture_rg) then
+      GlyphTextureFormat := GL_RED
+    else
+      GlyphTextureFormat := GL_LUMINANCE;
+    GL_OES_texture_npot := Int_CheckExtension(Extensions, 'GL_OES_texture_npot');
+    if (GL_OES_texture_npot) then
+      SupportsMipMap := true
+    else
+      Log.LogInfo('OpenGL ES driver does not support mipmapping for NPOT textures. Mipmapping will be disabled', 'TRenderer_OpenGLES.CheckVersion');
   end;
   SupportsFBO := true;
 end;
@@ -1885,8 +1919,10 @@ begin
   GL_ARB_map_buffer_range := Int_CheckExtension(Extensions, 'GL_ARB_map_buffer_range');
   if (GL_ARB_map_buffer_range) then
     SupportsMappedBuffer := true;
+  SupportsMipMap := true;
   fSupportsProjectM := false;
   SupportsFBO := false;
+  GlyphTextureFormat := GL_LUMINANCE;
 end;
 
 procedure TRenderer_OpenGL2.GetShaderSource(out MainVertex, MainFragment, TextFragment, LineStripVertex, LineStripFragment: string);

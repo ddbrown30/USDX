@@ -44,6 +44,7 @@ uses
   ULanguage,
   UMenu,
   UMenuEqualizer,
+  UMenuInteract,
   UMusic,
   UPath,
   URenderer,
@@ -63,6 +64,7 @@ type
 
       PreviewOpened: Integer; // interaction of the Song that is loaded for preview music
                               // -1 if nothing is opened
+      PreviewEnd: real;
 
       isScrolling: boolean;   // true if song flow is about to move
 
@@ -85,6 +87,7 @@ type
 
       procedure StartMusicPreview();
       procedure StartVideoPreview();
+      function GetSongButtonMouseOverArea(ButtonIndex: integer): TMouseOverRect;
     public
       TextArtist:   integer;
       TextTitle:    integer;
@@ -1495,8 +1498,7 @@ begin
     // hover cover
     for B := 0 to High(Button) do begin
       if (Button[B].Visible) then begin
-        // TODO: you have to specifically hover the cover image. see SetListScroll
-        if InRegion(X, Y, Button[B].GetMouseOverArea) then begin
+        if InRegion(X, Y, GetSongButtonMouseOverArea(B)) then begin
           if (Interaction <> B) then begin
             // play current hover
             isScrolling := false;
@@ -1509,6 +1511,27 @@ begin
         end;
       end;
     end;
+  end;
+end;
+
+function TScreenSong.GetSongButtonMouseOverArea(ButtonIndex: integer): TMouseOverRect;
+var
+  B: integer;
+  ListIndex: integer;
+begin
+  Result := Button[ButtonIndex].GetMouseOverArea;
+
+  if (TSongMenuMode(Ini.SongMenu) = smList) then
+  begin
+    ListIndex := -1;
+    for B := 0 to ButtonIndex do
+    begin
+      if (Button[B].Visible) then
+        Inc(ListIndex);
+    end;
+
+    if (ListIndex >= 0) and (ListIndex <= High(StaticList)) then
+      Result := StaticsList[StaticList[ListIndex]].GetMouseOverArea;
   end;
 end;
 
@@ -1539,7 +1562,7 @@ begin
       begin
         if (Button[B].Visible) then
         begin
-          if InRegion(X, Y, Button[B].GetMouseOverArea) then
+          if InRegion(X, Y, GetSongButtonMouseOverArea(B)) then
           begin
             ParseInput(SDLK_RETURN, 0, true)
           end;
@@ -1556,7 +1579,7 @@ begin
     begin
       if (Button[B].Visible) then
       begin
-        if InRegion(X, Y, Button[B].GetMouseOverArea) then
+        if InRegion(X, Y, GetSongButtonMouseOverArea(B)) then
         begin
           if (Interaction <> B) then
           begin
@@ -1616,7 +1639,7 @@ begin
         // test the 3 front buttons for click
         for I := 0 to 2 do
         begin
-          if InRegion(X, Y, Button[Btn].GetMouseOverArea) then
+          if InRegion(X, Y, GetSongButtonMouseOverArea(Btn)) then
           begin
             // song cover clicked
             if (I = 1) then
@@ -1665,7 +1688,7 @@ begin
         for I := 0 to 4 do
         begin
 
-          if InRegion(X, Y, Button[Btn].GetMouseOverArea) then
+          if InRegion(X, Y, GetSongButtonMouseOverArea(Btn)) then
           begin
             // song cover clicked
             if (I = 2) then
@@ -1818,6 +1841,7 @@ begin
   Equalizer := Tms_Equalizer.Create(AudioPlayback, Theme.Song.Equalizer);
 
   PreviewOpened := -1;
+  PreviewEnd := 0;
   isScrolling := false;
 
   fCurrentVideo := nil;
@@ -2095,6 +2119,7 @@ end;
 procedure TScreenSong.SyncCoversToSongs();
 var
   B: integer;
+  CoverFile: IPath;
 begin
   if (Length(Button) = 0) or (Length(CatSongs.Song) = 0) then
     Exit;
@@ -2105,6 +2130,19 @@ begin
       Break;
 
     UnloadCover(B);
+
+    // Refresh creates new category songs without initialized cover textures.
+    if not Assigned(CatSongs.Song[B].CoverTex) then
+    begin
+      CoverFile := CatSongs.Song[B].Path.Append(CatSongs.Song[B].Cover);
+      if not CoverFile.IsFile() then
+        CatSongs.Song[B].Cover := PATH_NONE;
+
+      if CatSongs.Song[B].Cover.IsUnset then
+        CoverFile := Skin.GetTextureFileName('SongCover');
+
+      CatSongs.Song[B].CoverTex := Renderer.CreateEmptyTexture(CoverFile);
+    end;
 
     Button[B].Texture.Free();
     Button[B].Texture := CatSongs.Song[B].CoverTex.Clone();
@@ -2818,10 +2856,12 @@ begin
 
     //Set Visibility of Rap Icons
     Statics[ListRapIcon[I]].Texture.Alpha := Alpha;
-    Statics[ListRapIcon[I]].Visible := CatSongs.Song[SongID[I]].hasRap and not RapToFreestyle;
+    Statics[ListRapIcon[I]].Visible := CatSongs.Song[SongID[I]].hasRap and
+      ((SongID[I] <> Interaction) or not RapToFreestyle);
 
     Statics[ListRapToFreestyleIcon[I]].Texture.Alpha := Alpha;
-    Statics[ListRapToFreestyleIcon[I]].Visible := CatSongs.Song[SongID[I]].hasRap and RapToFreestyle;
+    Statics[ListRapToFreestyleIcon[I]].Visible := CatSongs.Song[SongID[I]].hasRap and
+      (SongID[I] = Interaction) and RapToFreestyle;
 
     // Set texts
     Text[ListTextArtist[I]].Alpha := Alpha;
@@ -2904,12 +2944,12 @@ begin
       Text[ListTextArtist[I]].Visible := true;
       Text[ListTextTitle[I]].Visible  := true;
       Text[ListTextYear[I]].Visible   := true;
-      Statics[ListVideoIcon[I]].Visible  := true;
-      Statics[ListMedleyIcon[I]].Visible := true;
-      Statics[ListCalcMedleyIcon[I]].Visible := true;
-      Statics[ListDuetIcon[I]].Visible := true;
-      Statics[ListRapIcon[I]].Visible := true;
-      Statics[ListRapToFreestyleIcon[I]].Visible := true;
+      Statics[ListVideoIcon[I]].Visible  := false;
+      Statics[ListMedleyIcon[I]].Visible := false;
+      Statics[ListCalcMedleyIcon[I]].Visible := false;
+      Statics[ListDuetIcon[I]].Visible := false;
+      Statics[ListRapIcon[I]].Visible := false;
+      Statics[ListRapToFreestyleIcon[I]].Visible := false;
     end;
 
     Text[TextArtist].Visible := false;
@@ -2940,6 +2980,8 @@ begin
     AudioPlayback.Stop;
 
   PreviewOpened := -1;
+  DuetChange := false;
+  RapToFreestyle := false;
 
   // reset video playback engine
   fCurrentVideo := nil;
@@ -2953,6 +2995,15 @@ begin
 
   if Ini.Players <= 3 then PlayersPlay := Ini.Players + 1;
   if Ini.Players  = 4 then PlayersPlay := 6;
+
+  // The player-selection screen normally initializes Player. When players are
+  // selected after the song, however, the song screen is shown first.
+  SetLength(Player, PlayersPlay);
+  for I := 0 to PlayersPlay - 1 do
+  begin
+    Player[I].Name := Ini.Name[I];
+    Player[I].Level := Ini.PlayerLevel[I];
+  end;
 
   //Cat Mod etc
   if (Ini.TabsAtStartup = 1) and (CatSongs.CatNumShow = -1) then
@@ -3006,6 +3057,12 @@ begin
   isScrolling := false;
   SetJoker;
   SetStatics;
+
+  if (TSongMenuMode(Ini.SongMenu) = smList) then
+  begin
+    SetScroll;
+    SetScrollRefresh;
+  end;
 end;
 
 procedure TScreenSong.OnShowFinish;
@@ -3085,6 +3142,9 @@ var
 begin
 
   FadeMessage();
+
+  if (PreviewEnd > 0) and (AudioPlayback.Position >= PreviewEnd) then
+    StopMusicPreview;
 
   if isScrolling then
   begin
@@ -3616,15 +3676,7 @@ begin
   begin
     PreviewOpened := Interaction;
 
-    // preview start is either calculated (by finding the chorus) or pre-set, use it
-    if ((Song.PreviewStart > 0.0) or Song.HasPreview) and InRange(Song.PreviewStart, 0.0, AudioPlayback.Length) then
-      PreviewPos := Song.PreviewStart
-    else
-    begin // otherwise, fallback to simple preview calculation
-      PreviewPos := AudioPlayback.Length / 4;
-      // fix for invalid music file lengths
-      if (PreviewPos > 120.0) then PreviewPos := 60.0;
-    end;
+    Song.GetPreviewRange(AudioPlayback.Length, PreviewPos, PreviewEnd);
 
     AudioPlayback.Position := PreviewPos;
   
@@ -3649,6 +3701,7 @@ procedure TScreenSong.StopMusicPreview();
 begin
   // Stop preview of previous song
   AudioPlayback.Stop;
+  PreviewEnd := 0;
 end;
 
 procedure TScreenSong.StartVideoPreview();
