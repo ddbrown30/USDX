@@ -2,7 +2,7 @@
 --
 -- Lets an external process (e.g. the web controller) request a song to
 -- be played, and get back a real success/failure answer, without
--- synthetic keystrokes.
+-- synthetic keystrokes. Also publishes what's currently playing.
 --
 -- Protocol (simple file polling - Lua has no socket library available):
 --   The external process atomically writes the search text to
@@ -18,12 +18,28 @@
 --          plugins/controller_bridge/response.txt
 --
 --   The external process polls for response.txt, reads it, deletes it.
+--
+--   Separately, once per drawn frame this script also checks
+--   Usdx.Song.NowPlaying() and, whenever it changes, atomically
+--   rewrites plugins/controller_bridge/now_playing.txt to either:
+--     - two lines, "<title>\n<artist>", while a song is playing, or
+--     - an empty file, once nothing is (back at song select, scoring,
+--       etc).
+--   The external process just polls/reads that file directly - unlike
+--   request/response there's no hand-off to claim, since this script
+--   is the only writer and the file always reflects current state.
 
 local BRIDGE_DIR = 'plugins/controller_bridge'
 local REQUEST_FILE = BRIDGE_DIR .. '/request.txt'
 local REQUEST_PROCESSING_FILE = BRIDGE_DIR .. '/request.processing.txt'
 local RESPONSE_TMP_FILE = BRIDGE_DIR .. '/response.txt.tmp'
 local RESPONSE_FILE = BRIDGE_DIR .. '/response.txt'
+local NOW_PLAYING_TMP_FILE = BRIDGE_DIR .. '/now_playing.txt.tmp'
+local NOW_PLAYING_FILE = BRIDGE_DIR .. '/now_playing.txt'
+
+-- Last text written to now_playing.txt, so we only touch the file on
+-- an actual change instead of every single frame.
+local lastNowPlayingText = nil;
 
 function plugin_init()
   register('controller bridge', '1.00', '');
@@ -64,7 +80,50 @@ function write_response(text)
   os.rename(RESPONSE_TMP_FILE, RESPONSE_FILE);
 end
 
+function write_now_playing(text)
+  local f = io.open(NOW_PLAYING_TMP_FILE, 'w');
+
+  -- BRIDGE_DIR may not exist yet on a fresh install (the external
+  -- process creates it, lazily, the first time it makes a play
+  -- request) - Lua's stdlib os library has no mkdir, so just report
+  -- failure rather than erroring; the caller retries every frame
+  -- until the directory exists and a write finally succeeds.
+  if f == nil then
+    return false;
+  end
+
+  f:write(text);
+  f:close();
+
+  os.remove(NOW_PLAYING_FILE);
+  os.rename(NOW_PLAYING_TMP_FILE, NOW_PLAYING_FILE);
+
+  return true;
+end
+
+function PollNowPlaying()
+  local nowPlaying = Usdx.Song.NowPlaying();
+  local text;
+
+  if nowPlaying == nil then
+    text = '';
+  else
+    text = nowPlaying.title .. '\n' .. nowPlaying.artist;
+  end
+
+  -- Only cache text as "already written" once it's actually landed on
+  -- disk, so a failed write (e.g. BRIDGE_DIR not existing yet) keeps
+  -- retrying instead of being silently skipped forever.
+  if text ~= lastNowPlayingText then
+    if write_now_playing(text) then
+      lastNowPlayingText = text;
+    end
+  end
+end
+
 function PollForRequest()
+  PollNowPlaying();
+
   if not file_exists(REQUEST_FILE) then
     return;
   end

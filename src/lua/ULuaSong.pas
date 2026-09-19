@@ -17,6 +17,11 @@
  *     the in-game "Jump to" (J) box and presses Enter twice - but
  *     done directly against game state instead of synthetic
  *     keystrokes, so it can report a definite success/failure result.
+ *
+ *   Song.NowPlaying() -> table {title, artist} or nil
+ *     The title/artist of the song currently on the sing screen, or
+ *     nil whenever the sing screen isn't the active screen (song
+ *     select, scoring, party menus, etc).
  *}
 
 unit ULuaSong;
@@ -33,11 +38,13 @@ uses ULua;
 
 function ULuaSong_CanPlay(L: Plua_State): Integer; cdecl;
 function ULuaSong_Play(L: Plua_State): Integer; cdecl;
+function ULuaSong_NowPlaying(L: Plua_State): Integer; cdecl;
 
 const
-  ULuaSong_Lib_f: array [0..2] of lual_reg = (
+  ULuaSong_Lib_f: array [0..3] of lual_reg = (
     (name:'CanPlay'; func:ULuaSong_CanPlay),
     (name:'Play'; func:ULuaSong_Play),
+    (name:'NowPlaying'; func:ULuaSong_NowPlaying),
     (name:nil; func:nil)
   );
 
@@ -47,6 +54,7 @@ uses
   UGraphic,
   USongs,
   USong,
+  UNote,
   ULuaUtils;
 
 { True only while ScreenSong is the active screen and it is in its
@@ -107,6 +115,26 @@ begin
   ScreenSong.StartSong;
 
   lua_pushBoolean(L, true);
+end;
+
+function ULuaSong_NowPlaying(L: Plua_State): Integer; cdecl;
+begin
+  Lua_ClearStack(L);
+  Result := 1;
+
+  if (Display.CurrentScreen <> @ScreenSing) or (CurrentSong = nil) then
+  begin
+    lua_pushNil(L);
+    Exit;
+  end;
+
+  lua_createtable(L, 0, 2);
+
+  lua_pushString(L, PChar(CurrentSong.Title));
+  lua_setField(L, -2, 'title');
+
+  lua_pushString(L, PChar(CurrentSong.Artist));
+  lua_setField(L, -2, 'artist');
 end;
 
 end.

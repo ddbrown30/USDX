@@ -59,6 +59,11 @@ ppaslink.sh
 /game/screenshots/
 /game/songs/
 
+# runtime files written by controller_bridge.usdx (request/response
+# handshake files, now_playing.txt) - machine/session state, not part
+# of the plugin itself
+/game/plugins/controller_bridge/
+
 # game files
 /game/config.ini
 /game/*.db
@@ -70,3 +75,5 @@ ppaslink.sh
 /usdx-dlls-i686.zip
 /game/*.dll
 /game/*.debug
+/_portable_stage
+UltraStarDeluxe-portable.zip
