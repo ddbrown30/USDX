@@ -220,6 +220,7 @@ implementation
 
 uses
   UAvatars,
+  UCommandLine,
   UGraphic,
   UHelp,
   ULanguage,
@@ -1144,9 +1145,10 @@ begin
   PreviewEnd := 0;
 
   {**
-   * Turn backgroundmusic on
+   * Background/preview audio for this screen is decided at the end of
+   * OnShow instead (SavePlayback / -scoresongpreview / default all
+   * live there together).
    *}
-  //SoundLib.StartBgMusic; -- now play current song
 
   inherited;
 
@@ -1285,13 +1287,19 @@ begin
 
   RefreshTexts;
 
-  if not (Ini.SavePlayback = 1) then
-    StartPreview
-  else
+  if (Ini.SavePlayback = 1) then
   begin
     Voice := -1;
     StartVoice;
-  end;
+  end
+  else if (ScreenSong.Mode = smMedley) or Params.ScoreSongPreview then
+    // Medley review always shows a preview of each round's song
+    // regardless of this setting; -scoresongpreview opts a regular
+    // (non-medley) song back into that same old default too.
+    StartPreview
+  else if Params.ScoreBgMusic then
+    SoundLib.StartBgMusic;
+  // else: nothing plays - the new default.
 
 end;
 

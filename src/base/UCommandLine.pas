@@ -64,6 +64,8 @@ type
       ScreenMode: TScreenMode;
       Joypad:     boolean;
       Split:      TSplitMode;
+      ScoreSongPreview: boolean;
+      ScoreBgMusic: boolean;
 
       // some value variables set when reading infos {-1: Not Set, others: Value}
       Depth:      integer;
@@ -94,6 +96,8 @@ const
   cDebug           = 'debug';
   cCheckSongs      = 'check-songs';
   cMediaInterfaces = 'showinterfaces';
+  cScoreSongPreview = 'scoresongpreview';
+  cScoreBgMusic     = 'scorebgmusic';
 
 
 implementation
@@ -133,6 +137,8 @@ begin
   writeln('  '+ Fmt(cMediaInterfaces) +' : Show in-use media interfaces');
   writeln('  '+ Fmt(cDebug) +' : Display Debugging info');
   writeln('  '+ Fmt(cCheckSongs) +' : Fully validate song files during startup');
+  writeln('  '+ Fmt(cScoreSongPreview) +' : Play the just-sung song on the score screen (default: nothing plays)');
+  writeln('  '+ Fmt(cScoreBgMusic) +' : Play the menu background track on the score screen (default: nothing plays)');
   writeln;
 
   platform.halt;
@@ -150,6 +156,8 @@ begin
   ScreenMode  := scmDefault;
   Joypad      := False;
   Split       := spmDefault;
+  ScoreSongPreview := False;
+  ScoreBgMusic := False;
 
   // some value variables set when reading infos {-1: Not Set, others: Value}
   fResolution := '';
@@ -207,6 +215,10 @@ begin
         Split     := spmSplit
       else if (Command = 'nosplit') then
         Split     := spmNoSplit
+      else if (Command = cScoreSongPreview) then
+        ScoreSongPreview := True
+      else if (Command = cScoreBgMusic) then
+        ScoreBgMusic := True
 
       // integer variables
       else if (Command = 'depth') then
