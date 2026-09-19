@@ -315,7 +315,7 @@ begin
           if (Assigned(fCurrentVideo)) then
           begin
             fCurrentVideo.SetAspectCorrection(BackgroundAspectCorrection);
-            fCurrentVideo.Position := CurrentSong.VideoGAP + CurrentSong.Start + AudioPlayback.Position;
+            fCurrentVideo.Position := CurrentSong.VideoGAP + AudioPlayback.Position;
           end;
           Log.LogStatus('finished switching to video', 'UScreenSing.ParseInput');
         end
@@ -1385,7 +1385,7 @@ begin
           fShowWebCam:=false;
         end;
   Background.OnFinish;
-  Display.SetCursor;
+  Display.SetCursor(cshIgnoreSingScreen);
 end;
 
 function TScreenSingController.Draw: boolean;
