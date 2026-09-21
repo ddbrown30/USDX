@@ -308,6 +308,7 @@ var
   Done:             boolean;
   Report: string;
   I,J: Integer;
+  BackTraceFunction: TBacktraceStrFunc;
 begin
   Max_FPS := Ini.MaxFramerateGet;
   // need to explicitly stop this because it appears to be started by default
@@ -349,9 +350,10 @@ begin
             Report := Report + 'Exception class: ' + E.ClassName + LineEnding +
             'Message: ' + E.Message + LineEnding;
           end;
-          Report := Report + BackTraceStrFunc(ExceptAddr);
+          BackTraceFunction := Platform.GetBackTraceFunction();
+          Report := Report + BackTraceFunction(ExceptAddr);
           for I := 0 to ExceptFrameCount - 1 do
-            Report := Report + LineEnding + BackTraceStrFunc(ExceptFrames[I]);
+            Report := Report + LineEnding + BackTraceFunction(ExceptFrames[I]);
           ShowMessage(Report);
           done := true;
         end
